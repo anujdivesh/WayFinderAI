@@ -1,69 +1,73 @@
-import Image from "next/image";
-import styles from "./page.module.css";
+"use client";
+
+import { useEffect, useState } from "react";
+import ChatPanel from "./components/ChatPanel";
+import MapView from "./components/MapView";
+import Workbench from "./components/Workbench";
+import { loadCatalog, type CatalogEntry } from "./catalog";
+import { parseLayerCommand } from "./commands";
+import { BASEMAPS, layerFromQuery, type BBox, type FinalQuery, type Layer } from "./layers";
 
 export default function Home() {
+  const [layers, setLayers] = useState<Layer[]>([]);
+  const [catalog, setCatalog] = useState<CatalogEntry[]>([]);
+  const [basemap, setBasemap] = useState(BASEMAPS[0].id);
+  const [focus, setFocus] = useState<{ bbox: BBox; n: number } | null>(null);
+
+  useEffect(() => {
+    loadCatalog().then(setCatalog, (e) => console.warn("Catalog failed to load", e));
+  }, []);
+
+  const zoomTo = (bbox?: BBox) => bbox && setFocus((f) => ({ bbox, n: (f?.n ?? 0) + 1 }));
+
+  function addLayer(layer: Layer) {
+    setLayers((ls) => [layer, ...ls]); // newest on top
+    zoomTo(layer.bbox);
+  }
+
+  function addQuery(query: FinalQuery) {
+    const result = layerFromQuery(query, catalog);
+    if (!result) return "Nothing to add to the map: no matching dataset and no known place.";
+    addLayer(result.layer);
+    return result.note;
+  }
+
+  // Layer commands typed in the chat; returns the reply, or null if it isn't a command.
+  function runCommand(message: string) {
+    const cmd = parseLayerCommand(message, layers);
+    if (!cmd) return null;
+    if (cmd.kind === "remove") setLayers((ls) => ls.filter((l) => !cmd.ids.includes(l.id)));
+    if (cmd.kind === "hide" || cmd.kind === "show") {
+      const visible = cmd.kind === "show";
+      setLayers((ls) => ls.map((l) => (cmd.ids.includes(l.id) ? { ...l, visible } : l)));
+    }
+    return cmd.reply;
+  }
+
+  function move(id: string, dir: -1 | 1) {
+    setLayers((ls) => {
+      const i = ls.findIndex((l) => l.id === id);
+      const j = i + dir;
+      if (i < 0 || j < 0 || j >= ls.length) return ls;
+      const next = [...ls];
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+  }
+
   return (
-    <div className={styles.page}>
-      <main className={styles.main}>
-        <Image
-          className={styles.logo}
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className={styles.intro}>
-          <h1>
-            To get started, edit the{" "}
-            <code className={styles.code}>page.tsx</code> file.
-          </h1>
-          <p>
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className={styles.ctas}>
-          <a
-            className={styles.primary}
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className={styles.logo}
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className={styles.secondary}
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+    <>
+      <MapView layers={layers} basemap={basemap} focus={focus} />
+      <Workbench
+        layers={layers}
+        basemap={basemap}
+        onBasemap={setBasemap}
+        onChange={(id, patch) => setLayers((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)))}
+        onRemove={(id) => setLayers((ls) => ls.filter((l) => l.id !== id))}
+        onZoom={(l) => zoomTo(l.bbox)}
+        onMove={move}
+      />
+      <ChatPanel onQuery={addQuery} onCommand={runCommand} />
+    </>
   );
 }
