@@ -42,4 +42,5 @@ next-env.d.ts
 
 # copied from node_modules by scripts/copy-assets.mjs (postinstall)
 /public/wllama.wasm
-/public/maplibre/
+/public/cesium/
+!.env.example

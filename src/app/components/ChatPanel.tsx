@@ -14,11 +14,15 @@ import {
   chatPrompt,
   finalizeQuery,
   routeMessage,
+  wantsPlot,
   querySchema,
   routerPrompt,
   type ModelQuery,
+  type RoutedQuery,
 } from "../query";
 import type { FinalQuery } from "../layers";
+import { CATALOG, datasetTags, treeSummary } from "../datatree";
+import { shortlist } from "../search";
 import styles from "../page.module.css";
 
 type Backend = "webllm" | "wllama";
@@ -34,16 +38,18 @@ const HISTORY = 8;
 
 type Props = {
   // Called for each data request; returns a note for the chat, e.g. "Added to the map."
-  onQuery: (query: FinalQuery) => string;
+  onQuery: (query: FinalQuery) => Promise<string>;
   // Layer commands ("remove layer", "hide fiji"); returns the reply, or null if not a command.
   onCommand: (message: string) => string | null;
+  // The data tree as text (datatree.ts), so the assistant knows what exists and what it can do.
+  dataOutline: string;
 };
 
-export default function ChatPanel({ onQuery, onCommand }: Props) {
+export default function ChatPanel({ onQuery, onCommand, dataOutline }: Props) {
   const engineRef = useRef<Engine | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   // The last data request, so follow-ups ("plot it", "same for Tonga") can reuse its variable.
-  const lastQueryRef = useRef<ModelQuery | null>(null);
+  const lastQueryRef = useRef<RoutedQuery | null>(null);
   const [open, setOpen] = useState(true);
   // undefined while checking; null means WebLLM can run here.
   const [webllmIssue, setWebllmIssue] = useState<string | null | undefined>(undefined);
@@ -118,25 +124,40 @@ export default function ChatPanel({ onQuery, onCommand }: Props) {
     }
 
     try {
-      // 1. Route: is this a data request? If so, extract the query (schema-constrained).
+      // 1. Route: is this a data request? Search shortlists the datasets it might mean; the
+      // model picks one (or none) and extracts the rest of the query (schema-constrained).
+      const options = shortlist(content);
+      const optionText = options.map((d) => `${d.id}: ${d.label} (${datasetTags(d)})`);
       const raw = JSON.parse(
-        await engine.complete([{ role: "system", content: routerPrompt() }, ...history, user], querySchema),
+        await engine.complete(
+          [{ role: "system", content: routerPrompt(optionText) }, ...history, user],
+          querySchema(options.map((d) => d.id)),
+        ),
       ) as ModelQuery;
 
-      const routed = routeMessage(raw, content, lastQueryRef.current);
+      const routed = routeMessage(raw, content, lastQueryRef.current, options);
       if (routed) {
         lastQueryRef.current = routed;
         const query = finalizeQuery(routed);
         const ms = Math.round(performance.now() - t0);
-        const note = onQuery(query);
+        const note = await onQuery(query);
         setTurns((ts) => [...ts, { role: "assistant", content: note, query, ms }]);
+        return;
+      }
+
+      // A plot request we couldn't resolve: ask, rather than let the chat model pretend.
+      if (wantsPlot(content)) {
+        const ms = Math.round(performance.now() - t0);
+        // Listed from the data tree, so it always matches what's in the catalog.
+        const ask = `I couldn't tell which dataset you mean. The catalog has:\n${treeSummary()}\nName one to plot it.`;
+        setTurns((ts) => [...ts, { role: "assistant", content: ask, ms }]);
         return;
       }
 
       // 2. Chat: stream a normal free-text reply.
       setTurns((ts) => [...ts, { role: "assistant", content: "" }]);
       const reply = await engine.stream(
-        [{ role: "system", content: chatPrompt() }, ...history, user],
+        [{ role: "system", content: chatPrompt(dataOutline) }, ...history, user],
         (soFar) => setLast({ role: "assistant", content: soFar }),
       );
       setLast({ role: "assistant", content: reply, ms: Math.round(performance.now() - t0) });
@@ -213,7 +234,7 @@ export default function ChatPanel({ onQuery, onCommand }: Props) {
       <div className={styles.messages}>
         {turns.length === 0 && (
           <p className={styles.muted}>
-            {ready ? 'Say hi, or try "average SST around Fiji in August 2025".' : "Load a model to start."}
+            {ready ? `Say hi, or try "plot ${CATALOG[0]?.label ?? "a dataset"}".` : "Load a model to start."}
           </p>
         )}
         {turns.map((t, i) => (
@@ -221,7 +242,6 @@ export default function ChatPanel({ onQuery, onCommand }: Props) {
             {t.content || "…"}
             {t.query && (
               <>
-                {!t.query.variable && <p className={styles.warn}>Which dataset would you like, e.g. SST anomaly?</p>}
                 {t.query.placeText && !t.query.place && (
                   <p className={styles.warn}>I don&rsquo;t know where &ldquo;{t.query.placeText}&rdquo; is yet.</p>
                 )}

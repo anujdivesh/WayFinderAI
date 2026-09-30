@@ -1,4 +1,6 @@
 :root {
+  /* Always light, whatever the OS setting: panels, chat, charts and native controls. */
+  color-scheme: light;
   --background: #ffffff;
   --foreground: #171717;
   --panel: rgba(255, 255, 255, 0.94);
@@ -10,26 +12,7 @@
   --accent-fg: #ffffff;
   --warn: #b45309;
   --error: #dc2626;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-    --panel: rgba(17, 24, 39, 0.94);
-    --panel-border: rgba(148, 163, 184, 0.2);
-    --panel-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
-    --muted: #94a3b8;
-    --subtle: rgba(148, 163, 184, 0.14);
-    --accent: #22d3ee;
-    --accent-fg: #0b1220;
-    --warn: #fbbf24;
-    --error: #f87171;
-  }
-
-  html {
-    color-scheme: dark;
-  }
+  --series-1: #2a78d6; /* chart line (categorical slot 1) */
 }
 
 * {
@@ -63,4 +46,17 @@ input,
 select {
   font: inherit;
   color: inherit;
+}
+
+/* Cesium: keep the imagery credits visible beside the workbench, and the
+   scene-mode button clear of the chat panel. */
+.cesium-viewer-bottom {
+  left: 324px !important;
+  bottom: 4px !important;
+}
+
+@media (max-width: 640px) {
+  .cesium-viewer-bottom {
+    left: 12px !important;
+  }
 }

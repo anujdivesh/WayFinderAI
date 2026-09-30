@@ -1,13 +1,15 @@
-import type { StyleSpecification } from "maplibre-gl";
-import { clampDate, findDataset, timeRange, type CatalogEntry, type SpcLayer } from "./catalog";
-import type { finalizeQuery, VARIABLES } from "./query";
+import { clampDate, timeRange, type SpcLayer } from "./catalog";
+import { productExtent, type Action, type CatalogEntry } from "./datatree";
+import { stationTemplate, type StationPoint } from "./points";
+import type { finalizeQuery } from "./query";
+import { datasetById } from "./search";
+import { supportsTimeseries } from "./timeseries";
 
 export type FinalQuery = ReturnType<typeof finalizeQuery>;
 export type BBox = [number, number, number, number];
-type Variable = (typeof VARIABLES)[number];
 
-// A layer in the workbench: a WMS dataset for one date, or, when no dataset
-// matches the query yet, just the outline of the requested region.
+// A layer in the workbench: a gridded dataset for one date (WMS), a point dataset's
+// stations, or, when no dataset was named, just the outline of the requested region.
 export type Layer = {
   id: string;
   title: string;
@@ -15,97 +17,84 @@ export type Layer = {
   color: string;
   visible: boolean;
   opacity: number;
-  bbox?: BBox; // region to zoom to (and to outline, for non-WMS layers)
-  wms?: { layer: SpcLayer; date: string };
+  bbox?: BBox; // the place asked for: zoomed to on add (and outlined, for region layers)
+  extent?: BBox; // the dataset's own coverage (product metadata), for "zoom to layer"
+  wms?: { layer: SpcLayer; date: string; actions: Action[] }; // actions from the data tree
+  points?: { layer: SpcLayer; stations: StationPoint[] | null; error?: string }; // null while loading
   query?: FinalQuery;
 };
 
-export const VARIABLE_INFO: Record<Variable, { label: string; color: string }> = {
-  sst: { label: "Sea surface temperature", color: "#e4572e" },
-  sst_anomaly: { label: "SST anomaly", color: "#dc2626" },
-  salinity: { label: "Salinity", color: "#2563eb" },
-  chlorophyll: { label: "Chlorophyll", color: "#16a34a" },
-  wave_height: { label: "Wave height", color: "#8b5cf6" },
-  sea_level: { label: "Sea level", color: "#0891b2" },
-};
-const NO_VARIABLE = { label: "Region", color: "#64748b" };
+// Categorical palette (the dataviz reference palette), handed out in fixed order so a
+// layer keeps its colour; a colour is reused only once all eight are on the map.
+const PALETTE = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"];
+export const nextColor = (used: string[]) => PALETTE.find((c) => !used.includes(c)) ?? PALETTE[used.length % PALETTE.length];
 
 const titleCase = (s: string) => s.replace(/\b\w/g, (c) => c.toUpperCase());
 
-export function wmsLayer(entry: CatalogEntry, date?: string, bbox?: BBox, query?: FinalQuery): Layer {
+function wmsLayer(entry: CatalogEntry, color: string, date?: string, bbox?: BBox, query?: FinalQuery): Layer {
   const l = entry.layer;
   return {
     id: crypto.randomUUID(),
     title: l.layer_title,
     subtitle: "",
-    color: VARIABLE_INFO[entry.variable].color,
+    color,
     visible: true,
-    opacity: l.opacity,
+    opacity: l.opacity ?? 1, // one middleware layer has null
     bbox,
-    wms: { layer: l, date: clampDate(l, date ?? timeRange(l).max) },
+    extent: productExtent(entry.layer),
+    wms: { layer: l, date: clampDate(l, date ?? timeRange(l).max), actions: entry.actions },
     query,
   };
 }
 
-// Turns a chat query into a layer: the matching WMS dataset if the catalog has one,
-// otherwise a region outline. Returns null when there is nothing to draw.
-export function layerFromQuery(q: FinalQuery, catalog: CatalogEntry[]): { layer: Layer; note: string } | null {
-  const found = findDataset(catalog, q.variable);
-  const place = q.place ? titleCase(q.place.name) : null;
-  if (found) {
-    const { entry, exact } = found;
+function pointLayer(entry: CatalogEntry, color: string, bbox?: BBox, query?: FinalQuery): Layer {
+  return {
+    id: crypto.randomUUID(),
+    title: entry.layer.layer_title,
+    subtitle: "Loading stations…",
+    color,
+    visible: true,
+    opacity: 1,
+    bbox,
+    extent: productExtent(entry.layer),
+    points: { layer: entry.layer, stations: null },
+    query,
+  };
+}
+
+// Turns a routed query into a layer, by the dataset's kind in the data tree. Without a
+// dataset, a known place becomes a region outline. Returns null when there is nothing to draw.
+export function layerFromQuery(q: FinalQuery, color: string): { layer: Layer; note: string } | null {
+  const entry = datasetById(q.dataset);
+  if (entry?.kind === "gridded") {
     // A map shows one day: the end of the requested range, kept inside what the server has.
-    const layer = wmsLayer(entry, q.end, q.place?.bbox, q);
-    const shifted = layer.wms!.date !== q.end ? ` (nearest available to ${q.end})` : "";
-    const standIn = exact
-      ? ""
-      : `There's no ${VARIABLE_INFO[q.variable!].label.toLowerCase()} dataset yet, so this shows the closest one. `;
-    return { layer, note: `${standIn}Added ${entry.layer.layer_title} for ${layer.wms!.date}${shifted}.` };
+    const layer = wmsLayer(entry, color, q.userDates ? q.end : undefined, q.place?.bbox, q);
+    const shifted = q.userDates && layer.wms!.date !== q.end ? ` (nearest available to ${q.end})` : "";
+    return { layer, note: `Added ${entry.label} for ${layer.wms!.date}${shifted}.` };
+  }
+  if (entry?.kind === "point") {
+    return { layer: pointLayer(entry, color, q.place?.bbox, q), note: `Added ${entry.label}.` };
   }
   if (!q.place) return null;
-  const info = q.variable ? VARIABLE_INFO[q.variable] : NO_VARIABLE;
-  const agg = q.aggregation === "none" ? "" : ` · ${q.aggregation}`;
+  const place = titleCase(q.place.name);
   return {
     layer: {
       id: crypto.randomUUID(),
-      title: `${info.label} · ${place}`,
-      subtitle: `${q.start} → ${q.end}${agg}`,
+      title: `Region · ${place}`,
+      subtitle: "",
       bbox: q.place.bbox,
-      color: info.color,
+      color,
       visible: true,
       opacity: 0.35,
       query: q,
     },
-    note: q.variable
-      ? `No dataset for ${info.label.toLowerCase()} in the catalog yet, so only the region is shown.`
-      : "Added the region to the map.",
+    note: `Showing ${place}. Name a dataset to plot data there.`,
   };
 }
 
-const raster = (url: string, attribution: string, maxzoom: number): StyleSpecification => ({
-  version: 8,
-  sources: { base: { type: "raster", tiles: [url], tileSize: 256, attribution, maxzoom } },
-  layers: [{ id: "base", type: "raster", source: "base" }],
-});
+// Time series need both: the tree allows it, and the layer itself has it switched on.
+export const canChart = (l: Layer) =>
+  !!l.wms && l.wms.actions.includes("timeseries") && supportsTimeseries(l.wms.layer);
 
-export const BASEMAPS: { id: string; label: string; style: string | StyleSpecification }[] = [
-  {
-    id: "ocean",
-    label: "Esri Ocean",
-    style: raster(
-      "https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}",
-      "Esri, GEBCO, NOAA, National Geographic, Garmin, HERE, Geonames.org, and other contributors",
-      10,
-    ),
-  },
-  { id: "positron", label: "OpenFreeMap Positron", style: "https://tiles.openfreemap.org/styles/positron" },
-  {
-    id: "imagery",
-    label: "Esri Imagery",
-    style: raster(
-      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-      "Esri, Maxar, Earthstar Geographics, and the GIS User Community",
-      18,
-    ),
-  },
-];
+// Point layers chart per station when their timeseries_url is a per-station template.
+export const canChartStations = (l: Layer) => !!l.points && !!stationTemplate(l.points.layer);

@@ -367,3 +367,122 @@ button:disabled {
   border-radius: 4px;
   background: #fff; /* legend PNGs assume a light background */
 }
+
+/* Time-series panel: bottom, between the workbench and the chat */
+.chartPanel {
+  left: 324px;
+  right: 404px;
+  bottom: 12px;
+  height: min(320px, calc(100vh - 24px));
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.chartTitle {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.chartTitle h2 {
+  font-size: 14px;
+}
+
+.chartActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+.textButton {
+  padding: 4px 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  background: var(--background);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.textButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.charts {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+}
+
+.chartFigure {
+  flex: 1;
+  min-height: 140px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chartFigure figcaption {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.chartBox {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.tableWrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.dataTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dataTable th,
+.dataTable td {
+  padding: 4px 8px;
+  text-align: right;
+  border-bottom: 1px solid var(--panel-border);
+  white-space: nowrap;
+}
+
+.dataTable th:first-child,
+.dataTable td:first-child {
+  text-align: left;
+}
+
+.dataTable thead th {
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  color: var(--muted);
+  font-weight: 600;
+}
+
+/* Narrow screens: chart panel moves to the top, full width. */
+@media (max-width: 1100px) {
+  .chartPanel {
+    left: 12px;
+    right: 12px;
+    top: 12px;
+    bottom: auto;
+    height: min(300px, 45vh);
+    z-index: 3;
+  }
+}

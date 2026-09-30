@@ -2,13 +2,11 @@
 
 import { useState } from "react";
 import { timeRange } from "../catalog";
-import { BASEMAPS, type Layer } from "../layers";
+import { canChart, canChartStations, type Layer } from "../layers";
 import styles from "../page.module.css";
 
 type Props = {
   layers: Layer[];
-  basemap: string;
-  onBasemap: (id: string) => void;
   onChange: (id: string, patch: Partial<Layer>) => void;
   onRemove: (id: string) => void;
   onZoom: (layer: Layer) => void;
@@ -16,7 +14,7 @@ type Props = {
 };
 
 export default function Workbench(props: Props) {
-  const { layers, basemap, onBasemap, onChange, onRemove, onZoom, onMove } = props;
+  const { layers, onChange, onRemove, onZoom, onMove } = props;
   const [open, setOpen] = useState(true);
 
   if (!open) {
@@ -36,21 +34,10 @@ export default function Workbench(props: Props) {
         </button>
       </header>
 
-      <label className={styles.field}>
-        <span>Basemap</span>
-        <select value={basemap} onChange={(e) => onBasemap(e.target.value)}>
-          {BASEMAPS.map((b) => (
-            <option key={b.id} value={b.id}>
-              {b.label}
-            </option>
-          ))}
-        </select>
-      </label>
-
       <h3 className={styles.sectionTitle}>Layers</h3>
       {layers.length === 0 ? (
         <p className={styles.muted}>
-          No layers yet. Ask the Ocean assistant, e.g. &ldquo;SST anomaly around Fiji&rdquo;.
+          No layers yet. Ask the Ocean assistant to plot any dataset in the catalog.
         </p>
       ) : (
         <ul className={styles.layerList}>
@@ -83,8 +70,14 @@ export default function Workbench(props: Props) {
                   {/* crossOrigin: the page is cross-origin isolated, so images need CORS. */}
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img className={styles.legend} src={l.wms.layer.legend_url} alt={`${l.title} legend`} crossOrigin="anonymous" />
+                  {canChart(l) && (
+                    <span className={styles.small}>Click the map for a time series at that point.</span>
+                  )}
                 </>
               )}
+              {canChartStations(l) && l.points?.stations?.length ? (
+                <span className={styles.small}>Click a station for its time series.</span>
+              ) : null}
               <div className={styles.layerControls}>
                 <input
                   type="range"

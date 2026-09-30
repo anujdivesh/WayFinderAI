@@ -20,6 +20,11 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
+      <head>
+        {/* Cesium's widget styles, served from public/cesium (scripts/copy-assets.mjs). */}
+        {/* eslint-disable-next-line @next/next/no-css-tags */}
+        <link rel="stylesheet" href="/cesium/Widgets/widgets.css" />
+      </head>
       <body>{children}</body>
     </html>
   );
