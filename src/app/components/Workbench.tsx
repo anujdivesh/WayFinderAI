@@ -37,7 +37,7 @@ export default function Workbench(props: Props) {
       <h3 className={styles.sectionTitle}>Layers</h3>
       {layers.length === 0 ? (
         <p className={styles.muted}>
-          No layers yet. Ask the Ocean assistant to plot any dataset in the catalog.
+          No layers yet. Ask the Ocean Assistant to plot any dataset in the catalog.
         </p>
       ) : (
         <ul className={styles.layerList}>

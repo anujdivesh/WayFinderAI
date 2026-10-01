@@ -5,6 +5,7 @@ import ChartPanel from "./components/ChartPanel";
 import ChatPanel from "./components/ChatPanel";
 import MapView from "./components/MapView";
 import Workbench from "./components/Workbench";
+import { probeWms } from "./catalog";
 import { parseLayerCommand } from "./commands";
 import { dataOutline } from "./datatree";
 import { canChart, canChartStations, layerFromQuery, nextColor, type BBox, type FinalQuery, type Layer } from "./layers";
@@ -67,6 +68,14 @@ export default function Home() {
     // One layer per dataset: asking again (another date, another place, "I can't see it")
     // updates the layer that's already there instead of stacking a copy.
     const existing = layers.find((l) => datasetKey(l) === datasetKey(result.layer));
+
+    // Gridded data: check the server can draw that date before saying anything was added.
+    if (result.layer.wms) {
+      const date = existing?.wms && !query.userDates ? existing.wms.date : result.layer.wms.date;
+      const problem = await probeWms(result.layer.wms.layer, date);
+      if (problem) return `I couldn't get ${result.layer.title} for ${date}: ${problem}. Nothing was added.`;
+    }
+
     let layer = result.layer;
     let note = result.note;
     let stations = existing?.points?.stations ?? [];

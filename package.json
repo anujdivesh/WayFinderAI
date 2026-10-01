@@ -1,5 +1,5 @@
 {
-  "name": "webgpu-api",
+  "name": "ocean-assistant",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -9,9 +9,11 @@
     "lint": "eslint",
     "postinstall": "node scripts/copy-assets.mjs",
     "sync:layers": "node scripts/sync-layers.mjs",
-    "tree": "tsx scripts/print-tree.ts"
+    "tree": "tsx scripts/print-tree.ts",
+    "knowledge": "tsx scripts/build-knowledge.ts"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.3.0",
     "@mlc-ai/web-llm": "^0.2.85",
     "@wllama/wllama": "^3.6.1",
     "cesium": "^1.145.0",

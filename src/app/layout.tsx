@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Ocean Workbench",
-  description: "In-browser LLM via WebGPU",
+  title: "Ocean Assistant",
+  description: "Ocean data for Pacific Island countries, with an AI assistant that runs in your browser",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

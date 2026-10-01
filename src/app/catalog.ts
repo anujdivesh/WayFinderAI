@@ -83,3 +83,30 @@ export const supportsTimeseries = (l: SpcLayer) =>
   !!l.timeseries_variables &&
   !/^https?:/.test(l.timeseries_url) &&
   l.layer_type.startsWith("WMS");
+
+// Asks the server for one small image before a layer is added, so the app never says
+// "Added" for a map that can't draw (e.g. a date the server doesn't have). Returns null
+// when the image comes back, else the server's reason.
+export async function probeWms(l: SpcLayer, date: string): Promise<string | null> {
+  const o = wmsOptions(l, date);
+  const qs = new URLSearchParams({
+    service: "WMS",
+    request: "GetMap",
+    layers: o.layers,
+    srs: "EPSG:4326",
+    bbox: "-180,-90,180,90",
+    width: "64",
+    height: "32",
+    ...o.parameters,
+  });
+  try {
+    const res = await fetch(`${o.url}?${qs}`);
+    if (res.ok && res.headers.get("content-type")?.startsWith("image/")) return null;
+    const text = await res.text();
+    // ncWMS explains failures in a ServiceException element.
+    const reason = /<ServiceException[^>]*>([\s\S]*?)<\/ServiceException>/i.exec(text)?.[1]?.trim();
+    return reason || `the server answered HTTP ${res.status}`;
+  } catch (e) {
+    return `the server couldn't be reached (${String(e)})`;
+  }
+}

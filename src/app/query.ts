@@ -102,6 +102,7 @@ export function routeMessage(
   message: string,
   last: RoutedQuery | null,
   shortlist: { id: string; label: string }[], // this message's dataset shortlist, best first
+  clear: string | null = null, // the search's clear winner, if there is one (search.clearMatch)
 ): RoutedQuery | null {
   const options = shortlist.map((o) => o.id);
   const chosen = q.dataset && options.includes(q.dataset) ? q.dataset : null;
@@ -124,7 +125,9 @@ export function routeMessage(
     ...q,
     intent: "data",
     place,
-    dataset: chosen ?? options[0] ?? (followUp ? last!.dataset : null),
+    // The model's pick, else a clear search winner, else (a bare "plot it") the previous
+    // dataset. Never a guess: null here makes the app ask which one.
+    dataset: chosen ?? clear ?? (followUp ? last!.dataset : null),
     // Decided from the user's words, not the model: a chart only when they ask for one.
     action: SERIES_WORDS.test(message) ? "timeseries" : followUp ? last!.action : "map",
     point,
@@ -140,7 +143,8 @@ const BACKGROUND = `Background (use it, don't recite it):
 - ENSO (El Nino-Southern Oscillation) cycles every 2 to 7 years and is tracked with the Nino 3.4 SST index.
 - Sea level in the western tropical Pacific is rising faster than the global average.`;
 
-export const chatPrompt = (dataOutline: string) => `You are a friendly assistant inside an ocean data app for Pacific Island countries.
+// `notes` are passages retrieved for this message (rag.ts), as text; empty when none matched.
+export const chatPrompt = (dataOutline: string, notes = "") => `You are a friendly assistant inside an ocean data app for Pacific Island countries.
 Always reply in English. Answer from a Pacific Islands perspective.
 Today is ${today()}.
 
@@ -159,7 +163,15 @@ For a time series, users click a point on the map, or ask for "<dataset> time se
 You cannot see any data values yourself. If you are not sure of a fact, say so.
 Keep replies to a few sentences.
 
-${BACKGROUND}`;
+${BACKGROUND}${
+  notes
+    ? `
+
+Notes from the app's catalog and documents that may help with this message. Prefer them
+over your own memory, and ignore any that aren't relevant:
+${notes}`
+    : ""
+}`;
 
 // Place names are resolved here, not by the model. bbox = [west, south, east, north].
 type BBox = [number, number, number, number];

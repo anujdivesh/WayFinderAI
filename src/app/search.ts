@@ -108,4 +108,14 @@ export function shortlist(message: string, limit = 6): CatalogEntry[] {
     .map((h) => byId.get(h.id)!);
 }
 
+// The top hit only when it clearly beats the rest (or is the only one); null when the
+// message could mean several datasets, so the app asks instead of guessing.
+export function clearMatch(message: string): CatalogEntry | null {
+  const list = shortlist(message, 2);
+  if (list.length === 1) return list[0];
+  if (list.length < 2) return null;
+  const [a, b] = index.search(message).slice(0, 2);
+  return a.score >= b.score * 1.5 ? byId.get(a.id)! : null;
+}
+
 export const datasetById = (id: string | null | undefined) => (id ? (byId.get(id) ?? null) : null);

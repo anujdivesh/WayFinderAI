@@ -1,6 +1,6 @@
-import { CreateWebWorkerMLCEngine } from "@mlc-ai/web-llm";
+import { CreateWebWorkerMLCEngine, hasModelInCache } from "@mlc-ai/web-llm";
 // The package root points at raw TS sources; use the prebuilt ESM build.
-import { Wllama } from "@wllama/wllama/esm/index.js";
+import { CacheManager, Wllama } from "@wllama/wllama/esm/index.js";
 
 // Both backends expose the same two calls: schema-constrained JSON, and streamed free text.
 export type Message = { role: "system" | "user" | "assistant"; content: string };
@@ -51,6 +51,27 @@ export const WLLAMA_MODELS: ModelOption[] = [
   { id: "unsloth/Qwen3-1.7B-GGUF/Qwen3-1.7B-Q4_K_M.gguf", label: "Qwen3 1.7B (~1.1 GB)" },
   { id: "unsloth/Qwen3-0.6B-GGUF/Qwen3-0.6B-Q4_K_M.gguf", label: "Qwen3 0.6B (~0.4 GB)" },
 ];
+
+export type Backend = "webllm" | "wllama";
+
+// Whether a model is fully downloaded on this device, so loading it needs no network.
+export async function isCached(backend: Backend, model: string): Promise<boolean> {
+  try {
+    if (backend === "webllm") return await hasModelInCache(model);
+    // wllama stores each file with its source URL and expected size; a size mismatch
+    // means the download was interrupted.
+    const [owner, name, ...file] = model.split("/");
+    const entries = await new CacheManager().list();
+    return entries.some(
+      (e) =>
+        e.metadata.originalURL.includes(`/${owner}/${name}/`) &&
+        e.metadata.originalURL.endsWith(`/${file.join("/")}`) &&
+        e.size === e.metadata.originalSize,
+    );
+  } catch {
+    return false;
+  }
+}
 
 // Returns why WebLLM can't run here, or null if it can. Uses the same adapter
 // and limit that WebLLM checks when it initializes.

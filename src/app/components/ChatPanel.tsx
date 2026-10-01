@@ -2,11 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
+  isCached,
   loadWebLLM,
   loadWllama,
   webllmProblem,
   WEBLLM_MODELS,
   WLLAMA_MODELS,
+  type Backend,
   type Engine,
   type Message,
 } from "../engines";
@@ -22,10 +24,10 @@ import {
 } from "../query";
 import type { FinalQuery } from "../layers";
 import { CATALOG, datasetTags, treeSummary } from "../datatree";
-import { shortlist } from "../search";
+import { clearMatch, shortlist } from "../search";
+import { retrieve, warmRag } from "../rag";
 import styles from "../page.module.css";
 
-type Backend = "webllm" | "wllama";
 type Turn = {
   role: "user" | "assistant";
   content: string;
@@ -35,6 +37,37 @@ type Turn = {
 
 // How many earlier turns the model sees; small models do worse with long context.
 const HISTORY = 8;
+
+// The last model the user loaded, so the next visit can start with it.
+type Choice = { backend: Backend; model: string };
+const CHOICE_KEY = "chat-model";
+function savedChoice(): Choice | null {
+  try {
+    return JSON.parse(localStorage.getItem(CHOICE_KEY) ?? "null");
+  } catch {
+    return null;
+  }
+}
+function saveChoice(c: Choice) {
+  try {
+    localStorage.setItem(CHOICE_KEY, JSON.stringify(c));
+  } catch {}
+}
+
+// The first model already downloaded on this device: the last one used, then the lists'
+// order (WebLLM first when it can run here). Null if none is cached.
+async function cachedChoice(webllmOk: boolean): Promise<Choice | null> {
+  const all: Choice[] = [
+    ...(webllmOk ? WEBLLM_MODELS.map((m) => ({ backend: "webllm" as const, model: m.id })) : []),
+    ...WLLAMA_MODELS.map((m) => ({ backend: "wllama" as const, model: m.id })),
+  ];
+  const saved = savedChoice();
+  const known = all.find((c) => c.backend === saved?.backend && c.model === saved?.model);
+  for (const c of known ? [known, ...all.filter((c) => c !== known)] : all) {
+    if (await isCached(c.backend, c.model)) return c;
+  }
+  return null;
+}
 
 type Props = {
   // Called for each data request; returns a note for the chat, e.g. "Added to the map."
@@ -63,11 +96,24 @@ export default function ChatPanel({ onQuery, onCommand, dataOutline }: Props) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [error, setError] = useState("");
 
+  // Set before the first await, so React's dev double-mount doesn't load the model twice.
+  const autoLoadRef = useRef(false);
   useEffect(() => {
-    webllmProblem().then((problem) => {
+    if (autoLoadRef.current) return;
+    autoLoadRef.current = true;
+    webllmProblem().then(async (problem) => {
       setWebllmIssue(problem);
       if (!problem) pickBackend("webllm");
+      // A model already on this device loads without a download, so start it right away.
+      const cached = await cachedChoice(!problem);
+      if (cached) {
+        setBackend(cached.backend);
+        setModel(cached.model);
+        load(cached);
+      }
     });
+    // Once per page load, with the state as it was on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Braces matter: scrollIntoView can return a Promise, and React would treat it as a cleanup function.
@@ -80,17 +126,22 @@ export default function ChatPanel({ onQuery, onCommand, dataOutline }: Props) {
     setModel((b === "webllm" ? WEBLLM_MODELS : WLLAMA_MODELS)[0].id);
   }
 
-  async function load() {
+  async function load(choice: Choice = { backend, model }) {
     setError("");
     setLoaded("");
     setBusy(true);
+    // The retrieval model is small; fetch it alongside the chat model.
+    warmRag();
     try {
       const onProgress = (t: string, f: number) => {
         setStatus(t);
         setProgress(f);
       };
       engineRef.current =
-        backend === "webllm" ? await loadWebLLM(model, onProgress) : await loadWllama(model, onProgress);
+        choice.backend === "webllm"
+          ? await loadWebLLM(choice.model, onProgress)
+          : await loadWllama(choice.model, onProgress);
+      saveChoice(choice);
       setLoaded(engineRef.current.backend);
       setStatus("");
     } catch (e) {
@@ -135,7 +186,16 @@ export default function ChatPanel({ onQuery, onCommand, dataOutline }: Props) {
         ),
       ) as ModelQuery;
 
-      const routed = routeMessage(raw, content, lastQueryRef.current, options);
+      const routed = routeMessage(raw, content, lastQueryRef.current, options, clearMatch(content)?.id ?? null);
+
+      // A data request that could mean several datasets: ask, don't guess.
+      if (routed && !routed.dataset && !routed.place && options.length) {
+        const ms = Math.round(performance.now() - t0);
+        const names = options.slice(0, 4).map((d) => `"${d.label}"`);
+        const ask = `Which one do you mean: ${names.slice(0, -1).join(", ")}${names.length > 1 ? " or " : ""}${names.at(-1)}?`;
+        setTurns((ts) => [...ts, { role: "assistant", content: ask, ms }]);
+        return;
+      }
       if (routed) {
         lastQueryRef.current = routed;
         const query = finalizeQuery(routed);
@@ -154,10 +214,16 @@ export default function ChatPanel({ onQuery, onCommand, dataOutline }: Props) {
         return;
       }
 
-      // 2. Chat: stream a normal free-text reply.
+      // 2. Chat: stream a normal free-text reply, grounded in the closest knowledge passages.
       setTurns((ts) => [...ts, { role: "assistant", content: "" }]);
+      // Retrieval is a bonus: if it can't load, answer without it.
+      const passages = await retrieve(content).catch((e) => {
+        console.warn("retrieval unavailable", e);
+        return [];
+      });
+      const notes = passages.map((p) => `- [${p.title}] ${p.text}`).join("\n");
       const reply = await engine.stream(
-        [{ role: "system", content: chatPrompt(dataOutline) }, ...history, user],
+        [{ role: "system", content: chatPrompt(dataOutline, notes) }, ...history, user],
         (soFar) => setLast({ role: "assistant", content: soFar }),
       );
       setLast({ role: "assistant", content: reply, ms: Math.round(performance.now() - t0) });
@@ -174,7 +240,7 @@ export default function ChatPanel({ onQuery, onCommand, dataOutline }: Props) {
   if (!open) {
     return (
       <button className={`${styles.panel} ${styles.chatLauncher}`} onClick={() => setOpen(true)}>
-        <span className={ready ? styles.dotOn : styles.dotOff} /> Ocean assistant
+        <span className={ready ? styles.dotOn : styles.dotOff} /> Ocean Assistant
       </button>
     );
   }
@@ -183,7 +249,7 @@ export default function ChatPanel({ onQuery, onCommand, dataOutline }: Props) {
     <section className={`${styles.panel} ${styles.chatPanel}`}>
       <header className={styles.panelHeader}>
         <h2>
-          <span className={ready ? styles.dotOn : styles.dotOff} /> Ocean assistant
+          <span className={ready ? styles.dotOn : styles.dotOff} /> Ocean Assistant
         </h2>
         <button className={styles.iconButton} onClick={() => setOpen(false)} aria-label="Minimise chat">
           –
@@ -210,7 +276,7 @@ export default function ChatPanel({ onQuery, onCommand, dataOutline }: Props) {
               </option>
             ))}
           </select>
-          <button onClick={load} disabled={busy || webllmIssue === undefined}>
+          <button onClick={() => load()} disabled={busy || webllmIssue === undefined}>
             {ready ? "Reload" : "Load"}
           </button>
         </div>
