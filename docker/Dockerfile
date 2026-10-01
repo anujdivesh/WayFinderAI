@@ -1,0 +1,40 @@
+# syntax=docker/dockerfile:1
+# Ocean Assistant production image. Build from the repo root:
+#   docker build -f docker/Dockerfile --build-arg NEXT_PUBLIC_CESIUM_ION_TOKEN=... -t ocean-assistant .
+# or use docker/deploy.sh, which does this for you.
+
+# Debian rather than Alpine: onnxruntime-node (pulled in by transformers.js) needs glibc to install.
+FROM node:22-bookworm-slim AS build
+WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# Dependencies first, so this layer is cached until the lockfile changes. The postinstall
+# script (scripts/copy-assets.mjs) copies Cesium and wllama runtime files into public/.
+COPY package.json package-lock.json ./
+COPY scripts ./scripts
+RUN mkdir -p public && npm ci
+
+COPY . .
+# NEXT_PUBLIC_* values are inlined into the browser bundle at build time, not read at runtime.
+ARG NEXT_PUBLIC_CESIUM_ION_TOKEN
+ENV NEXT_PUBLIC_CESIUM_ION_TOKEN=$NEXT_PUBLIC_CESIUM_ION_TOKEN
+RUN npm run build
+
+FROM node:22-bookworm-slim AS run
+WORKDIR /app
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=3000 \
+    HOSTNAME=0.0.0.0
+
+# The standalone server doesn't include public/ or .next/static; they're served from beside it.
+COPY --from=build --chown=node:node /app/.next/standalone ./
+COPY --from=build --chown=node:node /app/.next/static ./.next/static
+COPY --from=build --chown=node:node /app/public ./public
+
+USER node
+EXPOSE 3000
+# The path is basePath in next.config.ts.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:3000/ocean-ai').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+CMD ["node", "server.js"]

@@ -1,3 +1,4 @@
+import { asset } from "./asset";
 import { EMBED_DTYPE, EMBED_MODEL, KNOWLEDGE_FILE, type Knowledge, type Passage } from "./ragconfig";
 
 // Retrieval for the chat model: embeds the question with the same model the build script
@@ -13,7 +14,7 @@ async function load(): Promise<Index> {
   // Loaded on demand: transformers.js and the embedding model are only needed for chat.
   const [{ pipeline }, knowledge] = await Promise.all([
     import("@huggingface/transformers"),
-    fetch(`/${KNOWLEDGE_FILE}`).then((r) => {
+    fetch(asset(`/${KNOWLEDGE_FILE}`)).then((r) => {
       if (!r.ok) throw new Error(`${KNOWLEDGE_FILE}: HTTP ${r.status} (run npm run knowledge)`);
       return r.json() as Promise<Knowledge>;
     }),

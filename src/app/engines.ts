@@ -1,6 +1,7 @@
 import { CreateWebWorkerMLCEngine, hasModelInCache } from "@mlc-ai/web-llm";
 // The package root points at raw TS sources; use the prebuilt ESM build.
 import { CacheManager, Wllama } from "@wllama/wllama/esm/index.js";
+import { asset } from "./asset";
 
 // Both backends expose the same two calls: schema-constrained JSON, and streamed free text.
 export type Message = { role: "system" | "user" | "assistant"; content: string };
@@ -129,7 +130,7 @@ export async function loadWllama(model: string, onProgress: Progress): Promise<E
   // Try the GPU first; if its WebGPU backend fails here, retry on the CPU.
   for (const gpuLayers of [undefined, 0]) {
     // wllama.wasm is copied into public/ by the postinstall script.
-    const wllama = new Wllama({ default: "/wllama.wasm" }, { suppressNativeLog: true });
+    const wllama = new Wllama({ default: asset("/wllama.wasm") }, { suppressNativeLog: true });
     // Safari lacks JSPI; compat mode (fetched from jsDelivr) lets it use WebGPU anyway.
     wllama.setCompat("default");
     try {

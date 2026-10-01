@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import type * as CesiumNS from "cesium";
+import { asset } from "../asset";
 import { wmsOptions } from "../catalog";
 import type { BBox, Layer } from "../layers";
 import { lon360 } from "../points";
@@ -147,7 +148,7 @@ export default function MapView({ layers, focus, marker, onMapClick, onStationCl
     let cancelled = false;
     let viewer: CesiumNS.Viewer | undefined;
     // Workers, widget assets and CSS are served from public/cesium (scripts/copy-assets.mjs).
-    (window as Window & { CESIUM_BASE_URL?: string }).CESIUM_BASE_URL = "/cesium";
+    (window as Window & { CESIUM_BASE_URL?: string }).CESIUM_BASE_URL = asset("/cesium");
 
     import("cesium").then((C) => {
       if (cancelled || !container.current) return;

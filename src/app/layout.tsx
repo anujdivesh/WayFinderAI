@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { asset } from "./asset";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -22,8 +23,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
       <head>
         {/* Cesium's widget styles, served from public/cesium (scripts/copy-assets.mjs). */}
-        {/* eslint-disable-next-line @next/next/no-css-tags */}
-        <link rel="stylesheet" href="/cesium/Widgets/widgets.css" />
+        <link rel="stylesheet" href={asset("/cesium/Widgets/widgets.css")} />
       </head>
       <body>{children}</body>
     </html>
