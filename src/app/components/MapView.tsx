@@ -11,6 +11,25 @@ import styles from "../page.module.css";
 
 type Cesium = typeof CesiumNS;
 
+// Cesium's prebuilt Cesium.js from public/cesium (scripts/copy-assets.mjs explains why it
+// isn't bundled). It defines window.Cesium; types still come from the npm package.
+let cesiumLoading: Promise<Cesium> | null = null;
+function loadCesium(): Promise<Cesium> {
+  const w = window as Window & { Cesium?: Cesium };
+  cesiumLoading ??= new Promise<Cesium>((resolve, reject) => {
+    if (w.Cesium) return resolve(w.Cesium);
+    const script = document.createElement("script");
+    script.src = asset("/cesium/Cesium.js");
+    script.onload = () => (w.Cesium ? resolve(w.Cesium) : reject(new Error("Cesium.js didn't define window.Cesium")));
+    script.onerror = () => {
+      cesiumLoading = null;
+      reject(new Error(`couldn't load ${script.src}`));
+    };
+    document.head.appendChild(script);
+  });
+  return cesiumLoading;
+}
+
 type Props = {
   layers: Layer[];
   // Changing `n` re-triggers the fly-to even for the same bbox.
@@ -150,7 +169,7 @@ export default function MapView({ layers, focus, marker, onMapClick, onStationCl
     // Workers, widget assets and CSS are served from public/cesium (scripts/copy-assets.mjs).
     (window as Window & { CESIUM_BASE_URL?: string }).CESIUM_BASE_URL = asset("/cesium");
 
-    import("cesium").then((C) => {
+    loadCesium().then((C) => {
       if (cancelled || !container.current) return;
       const token = process.env.NEXT_PUBLIC_CESIUM_ION_TOKEN;
       if (token) C.Ion.defaultAccessToken = token;

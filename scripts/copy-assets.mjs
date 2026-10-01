@@ -10,3 +10,7 @@ rmSync("public/cesium", { recursive: true, force: true });
 for (const dir of ["Workers", "ThirdParty", "Assets", "Widgets"]) {
   cpSync(`node_modules/cesium/Build/Cesium/${dir}`, `public/cesium/${dir}`, { recursive: true });
 }
+// Cesium itself, prebuilt. Bundling it breaks production builds: the minifier rewrites a
+// WebAssembly binary embedded in a template literal (from @spz-loader/core) into octal
+// escapes, which are a SyntaxError there. MapView.tsx loads this file with a script tag.
+copyFileSync("node_modules/cesium/Build/Cesium/Cesium.js", "public/cesium/Cesium.js");
